@@ -36,7 +36,7 @@ libraryDependencies ++= Seq(
     "org.apache.hadoop" % "hadoop-client" % hadoopVersion excludeAll(excludeJackson, excludeNetty, excludeAsm, excludeCglib),
     "org.apache.spark" % "spark-core_2.10" % sparkVersion,
     "org.apache.spark" % "spark-sql_2.10" % sparkVersion,
-    "org.apache.spark" % "spark-sql_2.10" % sparkVersion  
+    "org.apache.spark" % "spark-mllib_2.10" % sparkVersion  
   ) ++ (if (sbtYarnFlag != "") {
           val defaultYarnVersion = "2.4.0"
           val yarnVersion = scala.util.Properties.envOrElse("SPARK_YARN_VERSION", defaultYarnVersion)
