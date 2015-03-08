@@ -201,4 +201,51 @@ object MLlibR {
           .setConvergenceTol(tolerance)
         LogRegAlg.run(data)
       }
+
+
+    //
+    // Prediction method APIs
+    //
+    def IdScore(modObj: LogisticRegressionModel, vectors: RDD[IdPoint]): RDD[(String, Double)] = {
+      modObj.clearThreshold()
+      vectors.map { point =>
+        (point.id, modObj.predict(point.features))
+      }
+    }
+
+    def IdScore(modObj: DecisionTreeModel, vectors: RDD[IdPoint]): RDD[(String, Double)] = {
+      vectors.map { point =>
+        (point.id, modObj.predict(point.features))
+      }
+    }
+
+    // A less than ideal way of getting things into R since we can't create a
+    // DataFrame in Spark from the R side nicely at the moment.
+    def getScores(idScr: RDD[(String, Double)], num: Int): Array[Double] = {
+      val scoresRDD = idScr.map {tuple => tuple._2}
+      val scores = scoresRDD.collect
+      if (num <= 0L) {
+        scores
+      } else {
+        var reducScores = Array[Double](scores(0))
+        for (ind <- 1 until num) {
+          reducScores :+= scores(ind)
+        }
+        reducScores
+      }
+    }
+    def getIDs(idScr: RDD[(String, Double)], num: Int): Array[String] = {
+      val idRDD = idScr.map { tuple => tuple._1}
+      val ids = idRDD.collect
+      if (num <= 0L) {
+        ids
+      } else {
+        var reducIds = Array[String](ids(0))
+        for (ind <- 1 until num) {
+          reducIds :+= ids(ind)
+        }
+        reducIds
+      }
+    }
+
 }
