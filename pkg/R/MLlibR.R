@@ -212,6 +212,10 @@ summary.LogisticRegressionModel <- function(mod_obj) {
 ## Model Prediction Methods
 ##
 
+idScore <- function(model, ...) {
+  UseMethod("idScore", model)
+}
+
 idScore.LogisticRegressionModel <- function(model, id, df, sqlCtx) {
   if (class(id) != "character") {
     stop("The identifier (id) field needs to be given a single item character vector.")
@@ -244,6 +248,6 @@ getScores <- function(id_scores, number = -1L) {
                                     "getScores",
                                     id_scores@jrdd,
                                     as.integer(number))
-                                    
+
   data.frame(ID = unlist(the_ids), Score = unlist(the_scores))
 }
