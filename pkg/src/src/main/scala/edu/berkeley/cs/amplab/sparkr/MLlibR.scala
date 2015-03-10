@@ -224,7 +224,7 @@ object MLlibR {
       maxDepth: Int,
       maxBins: Int): DecisionTreeModel = {
         val categoricalFeaturesInfo = Map[Int, Int]()
-        val dtModel = DecisionTree.trainClassifier(data,
+        val dtModel = DecisionTree.trainRegressor(data,
                       categoricalFeaturesInfo,
                       impurity,
                       maxDepth,
