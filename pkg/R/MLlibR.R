@@ -28,7 +28,7 @@ dfToLabeledPoints <- function(df) {
     stop("The provided argument is not a Spark DataFrame.")
   }
   lp <- SparkR:::callJStatic("edu.berkeley.cs.amplab.sparkr.MLlibR", "dfToLabeledPoints", df@sdf)
-  SparkR:::RDD(lp)
+  lp
 }
 
 # Turn a Spark DataFrame into an object that is RDD[IdPoint], which is
@@ -39,7 +39,7 @@ dfToIdPoints <- function(df) {
     stop("The provided argument is not a Spark DataFrame.")
   }
   ip <- SparkR:::callJStatic("edu.berkeley.cs.amplab.sparkr.MLlibR", "dfToIdPoints", df@sdf)
-  SparkR:::RDD(ip)
+  ip
 }
 
 
@@ -87,11 +87,11 @@ logisticRegressionWithLBFGS <- function(formula,
   estDF <- sql(sqlCtx, q_string)
   registerTempTable(estDF, "estDF")
   estLP <- dfToLabeledPoints(estDF)
-  cache(estLP)
+  SparkR:::callJMethod(estLP, "cache")
   use_intercept <- pf[[2]]
   the_model <- SparkR:::callJStatic("edu.berkeley.cs.amplab.sparkr.MLlibR",
                                     "trainLogisticRegressionModelWithLBFGS",
-                                    estLP@jrdd,
+                                    estLP,
                                     iter,
                                     reg_param,
                                     use_intercept,
@@ -113,13 +113,13 @@ scoresLabels <- function(model, labeled_points, threshold = 0.5) {
   #if (!any(class(model) %in% c("LogisticRegressionModel"))) {
   #  stop("The provided model is not of an appropriate type.")
   #}
-  if (class(labeled_points) != "RDD") {
-    stop("The provided labeled_points is not an RDD.")
+  if (class(labeled_points) != "jobj") {
+    stop("The provided labeled_points is not a jobj.")
   }
   sl <- SparkR:::callJStatic("edu.berkeley.cs.amplab.sparkr.MLlibR",
                               "ScoresLabels",
                               model,
-                              labeled_points@jrdd,
+                              labeled_points,
                               threshold)
   SparkR:::RDD(sl)
 }
@@ -228,11 +228,11 @@ idScore.LogisticRegressionModel <- function(model, id, df, sqlCtx) {
   scoreDF <- sql(sqlCtx, q_string)
   registerTempTable(scoreDF, "scoreDF")
   scoreIP <- dfToIdPoints(scoreDF)
-  cache(scoreIP)
+  SparkR:::callJMethod(scoreIP, "cache")
   scores <- SparkR:::callJStatic("edu.berkeley.cs.amplab.sparkr.MLlibR",
                                 "IdScore",
                                 model$Model,
-                                scoreIP@jrdd)
+                                scoreIP)
   SparkR:::RDD(scores)
 }
 
