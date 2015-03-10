@@ -202,6 +202,36 @@ object MLlibR {
         LogRegAlg.run(data)
       }
 
+  // A methods to estimate decision tree models
+  def trainClassificationTree(
+      data: RDD[LabeledPoint],
+      numClasses: Int,
+      impurity: String,
+      maxDepth: Int,
+      maxBins: Int): DecisionTreeModel = {
+        val categoricalFeaturesInfo = Map[Int, Int]()
+        val dtModel = DecisionTree.trainClassifier(data,
+                      numClasses,
+                      categoricalFeaturesInfo,
+                      impurity,
+                      maxDepth,
+                      maxBins)
+        dtModel
+  }
+  def trainRegressionTree(
+      data: RDD[LabeledPoint],
+      impurity: String,
+      maxDepth: Int,
+      maxBins: Int): DecisionTreeModel = {
+        val categoricalFeaturesInfo = Map[Int, Int]()
+        val dtModel = DecisionTree.trainClassifier(data,
+                      categoricalFeaturesInfo,
+                      impurity,
+                      maxDepth,
+                      maxBins)
+        dtModel
+  }
+
 
     //
     // Prediction method APIs
