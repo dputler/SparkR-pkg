@@ -168,7 +168,9 @@ export("print.structType",
 export("dfToLabeledPoints",
        "dfToIdPoints",
        "logisticRegressionWithLBFGS",
+       "decisionTree",
        "scoresLabels",
+       "misClassRate",
        "binaryConfusionMatrix",
        "binaryClassificationDeviance",
        "BinaryClassificationMetrics",
@@ -178,4 +180,6 @@ export("dfToLabeledPoints",
 export("idScore")
 # S3 methods
 export("summary.LogisticRegressionModel",
-       "idScore.LogisticRegressionModel")
+       "summary.DecisionTreeModel",
+       "idScore.LogisticRegressionModel",
+       "idScore.DecisionTreeModel")

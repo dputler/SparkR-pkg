@@ -111,6 +111,11 @@ object MLlibR {
     coefArray
   }
 
+  // A method to calculate the misclassification rate of a model
+  def misClassRate(sl: RDD[(Double, Double)]): Double = {
+    sl.filter(tuple => tuple._1 != tuple._2).count.toDouble/sl.count().toDouble
+  }
+
   // A method to calculate a binary confusion matrix. THIS PROBABLY SHOULD BE
   // PART OF MLlib.
   def binaryConfusionMatrix(scoreLabels: RDD[(Double, Double)]): Array[Double] = {

@@ -42,6 +42,15 @@ dfToIdPoints <- function(df) {
   ip
 }
 
+# A function to get the class name of a jobj
+getJClassName <- function(obj) {
+  if (class(obj) != "jobj") {
+    stop("The provided object is not a Java object")
+  }
+  a <- SparkR:::callJMethod(obj, "getClass")
+  b <- unlist(strsplit(SparkR:::callJMethod(a, "getName"),"\\."))
+  b[length(b)]
+}
 
 ##
 ## MLlib model API functions
@@ -102,11 +111,98 @@ logisticRegressionWithLBFGS <- function(formula,
   obj
 }
 
+# The API for a decision tree model
+decisionTree <- function(formula,
+                         df,
+                         sqlCtx,
+                         modType = c("classification", "regression"),
+                         impurity = NULL,
+                         nclasses = 2L,
+                         maxDepth = 5L,
+                         maxBins = 32L) {
+  # Input error checking and field coercion to the correct type
+  if (class(formula) != "formula") {
+    stop("The provided formula is not a formula object.")
+  }
+  if (class(df) != "character") {
+    stop("The Spark DataFrame name (df) needs to be a character string.")
+  }
+  modType = match.arg(modType)
+  if (!is.null(impurity)) {
+    if (modType == "classification") {
+      if (!(impurity %in% c("gini", "entropy"))) {
+        message(paste(impurity, "is not a valid classification impurity measure, and was replaced by 'gini'"))
+        impurity <- "gini"
+      }
+    } else {
+      if (impurity != "variance") {
+        message(paste(impurity, "is not a valid regression impurity measure, and was replaced by 'variance'"))
+        impurity <- "variance"
+      }
+    }
+  } else {
+    if (modType == "classification") {
+      impurity <- "gini"
+    } else {
+      impurity <- "variance"
+    }
+  }
+  nclasses <- as.integer(nclasses)
+  if (nclasses < 2L) {
+    stop("The number of classes must be two or higher.")
+  }
+  maxDepth <- as.integer(maxDepth)
+  if (maxDepth < 1L) {
+    stop("The maximum depth of a node must be strictly positive.")
+  }
+  maxBins <- as.integer(maxBins)
+  if (maxBins < 2L) {
+    stop("The maximum number of bins must be greater than one.")
+  }
+  # Parse the formula and prepare the data
+  the_call <- match.call()
+  pf <- SparkR:::parseFormula(formula)
+  fields <- pf[[1]]
+  q_string <- paste("SELECT", paste(fields, collapse = ", "), "FROM", df)
+  estDF <- sql(sqlCtx, q_string)
+  registerTempTable(estDF, "estDF")
+  estLP <- dfToLabeledPoints(estDF)
+  SparkR:::callJMethod(estLP, "cache")
+  if (modType == "classification") {
+    the_model <- SparkR:::callJStatic("edu.berkeley.cs.amplab.sparkr.MLlibR",
+                                      "trainClassificationTree",
+                                      estLP,
+                                      nclasses,
+                                      impurity,
+                                      maxDepth,
+                                      maxBins)
+  } else {
+    the_model <- SparkR:::callJStatic("edu.berkeley.cs.amplab.sparkr.MLlibR",
+                                      "trainRegressionTree",
+                                      estLP,
+                                      impurity,
+                                      maxDepth,
+                                      maxBins)
+  }
+  obj <- list(Model = the_model, Data = estLP, Fields = fields, Type = modType)
+  if (modType == "classification") {
+    obj$Classes <- nclasses
+  }
+  obj$call <- the_call
+  class(obj) <- "DecisionTreeModel"
+  obj
+}
+
 
 ##
 ## Model Evaluation and Summary Functions
 ##
 
+## I'M HERE WITH A DESIGN DELEMA. I WANT THIS OPEN BOTH ESTIMATION AND OTHER DATA
+## AND WANT IT TO HANDLE MODEL OBJECTS BOTH WITH AND WITHOUT THE ABILITY TO SET
+## THRESHOLDS. RIGHT NOW I TAKE THE jobj MODEL OBJECT AND THE LABELED POINTS, BUT
+## THESE ARE WRAPPED UP INTO THE REMOVING THE THRESHOLD TO GET PROBABILITIES.
+## I THINK THE ANSWER IS TO ALLOW NULL FOR THE THRESHOLD VALUE
 # A function to create an RDD of label/score pair tuples
 scoresLabels <- function(model, labeled_points, threshold = 0.5) {
   # The check below will expand in terms of model types
@@ -116,11 +212,18 @@ scoresLabels <- function(model, labeled_points, threshold = 0.5) {
   if (class(labeled_points) != "jobj") {
     stop("The provided labeled_points is not a jobj.")
   }
-  sl <- SparkR:::callJStatic("edu.berkeley.cs.amplab.sparkr.MLlibR",
-                              "ScoresLabels",
-                              model,
-                              labeled_points,
-                              threshold)
+  if (getJClassName(model) %in% c("LogisticRegressionModel")) {
+    sl <- SparkR:::callJStatic("edu.berkeley.cs.amplab.sparkr.MLlibR",
+                               "ScoresLabels",
+                               model,
+                               labeled_points,
+                               threshold)
+  } else {
+    sl <- SparkR:::callJStatic("edu.berkeley.cs.amplab.sparkr.MLlibR",
+                               "ScoresLabels",
+                               model,
+                               labeled_points)
+  }
   SparkR:::RDD(sl)
 }
 
@@ -137,6 +240,7 @@ binaryConfusionMatrix <- function(sl) {
   as.table(cm)
 }
 
+# A function to calculate residual and null devainces for a model
 binaryClassificationDeviance <- function(slProb) {
   if (class(slProb) != "RDD") {
     stop("The provided argument is not a reference to a RDD.")
@@ -147,6 +251,15 @@ binaryClassificationDeviance <- function(slProb) {
   unlist(devs)
 }
 
+# A function to calculate the misclassification rate of a binary classification
+# model
+misClassRate <- function(score_label) {
+  SparkR:::callJStatic("edu.berkeley.cs.amplab.sparkr.MLlibR",
+                        "misClassRate",
+                        score_label@jrdd)
+}
+
+# A function to extract the model coefficients from a MLlib regression model
 getCoefs <- function(mod_obj) {
   coefs <- SparkR:::callJStatic("edu.berkeley.cs.amplab.sparkr.MLlibR",
                                 "getCoefs",
@@ -207,15 +320,48 @@ summary.LogisticRegressionModel <- function(mod_obj) {
   print(binaryConfusionMatrix(sl2))
 }
 
+# A summary method for a MLlib decision tree model
+summary.DecisionTreeModel <- function(mod_obj) {
+  # The model call
+  cat("Call:\n")
+  print(mod_obj$call)
+  # The model summary
+  the_summary <- SparkR:::callJMethod(mod_obj$Model, "toString")
+  cat("\nTree Summary:\n")
+  cat(paste(the_summary, "\n"))
+  # Model Fit statistics
+  sl <- scoresLabels(mod_obj$Model, mod_obj$Data)
+  if (mod_obj$Type == "classification") {
+    misclass <- misClassRate(sl)
+    summary_vec <- misclass
+    summary_names <- "Misclassification rate"
+    if (mod_obj$Classes == 2) {
+      metrics <- BinaryClassificationMetrics(sl)
+      summary_vec <- c(summary_vec, areaUnderROC(metrics))
+      summary_names <- c(summary_names, "Area under the ROC")
+    }
+    summary_df <- data.frame(Value = format(summary_vec, digits = 2, nsmall = 3))
+    row.names(summary_df) <- summary_names
+    cat("\nSummary Statistics:\n")
+    print(summary_df)
+    if (mod_obj$Classes == 2) {
+      cat("\nConfusion Matrix:\n")
+      print(binaryConfusionMatrix(sl))
+    }
+  }
+}
+
 
 ##
 ## Model Prediction Methods
 ##
 
+# The generic idScore method
 idScore <- function(model, ...) {
   UseMethod("idScore", model)
 }
 
+# The idScore method for logistic regression
 idScore.LogisticRegressionModel <- function(model, id, df, sqlCtx) {
   if (class(id) != "character") {
     stop("The identifier (id) field needs to be given a single item character vector.")
@@ -229,6 +375,27 @@ idScore.LogisticRegressionModel <- function(model, id, df, sqlCtx) {
   registerTempTable(scoreDF, "scoreDF")
   scoreIP <- dfToIdPoints(scoreDF)
   SparkR:::callJMethod(scoreIP, "cache")
+  scores <- SparkR:::callJStatic("edu.berkeley.cs.amplab.sparkr.MLlibR",
+                                "IdScore",
+                                model$Model,
+                                scoreIP)
+  SparkR:::RDD(scores)
+}
+
+# The idScore method for decision trees
+idScore.DecisionTreeModel <- function(model, id, df, sqlCtx) {
+  if (class(id) != "character") {
+    stop("The identifier (id) field needs to be given a single item character vector.")
+  }
+  if (class(df) != "character") {
+    stop("The Spark DataFrame name (df) needs to be a character string.")
+  }
+  fields <- model$Fields[-1]
+  q_string <- paste("SELECT", id, ", ", paste(fields, collapse = ", "), "FROM", df)
+  scoreDF <- sql(sqlCtx, q_string)
+  registerTempTable(scoreDF, "scoreDF")
+  scoreIP <- dfToIdPoints(scoreDF)
+  SparkR:::callJMethod(scoreIP,"cache")
   scores <- SparkR:::callJStatic("edu.berkeley.cs.amplab.sparkr.MLlibR",
                                 "IdScore",
                                 model$Model,
