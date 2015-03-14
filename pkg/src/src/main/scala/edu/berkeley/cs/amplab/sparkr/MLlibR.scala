@@ -207,7 +207,7 @@ object MLlibR {
         LogRegAlg.run(data)
       }
 
-  // A methods to estimate decision tree models
+  // A method to estimate decision tree models
   def trainClassificationTree(
       data: RDD[LabeledPoint],
       numClasses: Int,
@@ -223,18 +223,44 @@ object MLlibR {
                       maxBins)
         dtModel
   }
-  def trainRegressionTree(
+
+  def trainLinearRegressionWithSGD(
       data: RDD[LabeledPoint],
-      impurity: String,
-      maxDepth: Int,
-      maxBins: Int): DecisionTreeModel = {
-        val categoricalFeaturesInfo = Map[Int, Int]()
-        val dtModel = DecisionTree.trainRegressor(data,
-                      categoricalFeaturesInfo,
-                      impurity,
-                      maxDepth,
-                      maxBins)
-        dtModel
+      input: RDD[LabeledPoint],
+      numIterations: Int,
+      stepSize: Double,
+      miniBatchFraction: Double,
+      initialWeights: Vector): LinearRegressionModel = {
+        val linRegModel = LinearRegressionWithSGD.train(data,
+                                                     numIterations,
+                                                     stepSize,
+                                                     miniBatchFraction,
+                                                     initialWeights)
+        linRegModel
+  }
+
+  def trainLinearRegressionWithSGD(
+    data: RDD[LabeledPoint],
+    input: RDD[LabeledPoint],
+    numIterations: Int,
+    stepSize: Double,
+    miniBatchFraction: Double): LinearRegressionModel = {
+        val regModel = LinearRegressionWithSGD.train(data,
+                                                     numIterations,
+                                                     stepSize,
+                                                     miniBatchFraction)
+        regModel
+  }
+
+  def trainLinearRegressionWithSGD(
+    data: RDD[LabeledPoint],
+    input: RDD[LabeledPoint],
+    numIterations: Int,
+    stepSize: Double):LinearRegressionModel = {
+        val regModel = LinearRegressionWithSGD.train(data,
+                                                     numIterations,
+                                                     stepSize)
+        regModel
   }
 
 
