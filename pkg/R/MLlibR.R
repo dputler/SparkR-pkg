@@ -4,7 +4,7 @@
 
 # Parse an R formula so it can be incorporated into a SparkSQL query to get the
 # target and relevant predictors and to determine if the model should include an
-# intercept
+# intercept. This is not yet provide all features of an R formula
 parseFormula <- function(formula) {
   if (class(formula) != "formula") {
     stop("The provided argument is not a formula.")
@@ -56,13 +56,89 @@ getJClassName <- function(obj) {
 ## MLlib model API functions
 ##
 
+# A function for training a linear regression model
+linearRegressionWithSGD <- function(formula,
+                                    df,
+                                    sqlCtx,
+                                    iter = 100L,
+                                    step = 1,
+                                    batch_frac = 1,
+                                    start_vals = NULL,
+                                    reg_param = 0,
+                                    reg_type = "none") {
+  # Initial input error checking
+  if (class(formula) != "formula") {
+    stop("The provided formula is not a formula object.")
+  }
+  if (class(df) != "character") {
+    stop("The Spark DataFrame name (df) needs to be a character string.")
+  }
+  if (is.null(batch_frac)) {
+    batch_frac <- 1
+  }
+  batch_frac <- as.numeric(batch_frac)
+  if (batch_frac > 1) {
+    message("The minimum banch fraction cannot exeed 1.")
+    batch_frac <- 1
+  }
+  if (batch_frac <= 0) {
+    stop("The minimum banch fraction must be strictly positive.")
+  }
+  reg_param <- as.numeric(reg_param)
+  if (!(reg_type %in% c("none", "l1", "l2"))) {
+    stop("The provided regularization type must be one of 'none', 'l1', and 'l2'.")
+  }
+  # Parse the formula and prep/check the start values
+  pf <- SparkR:::parseFormula(formula)
+  fields <- pf[[1]]
+  if (is.null(start_vals)) {
+    start_vals <- rep(0, length(fields))
+    if (pf[[2]] == 0) {
+      start_vals <- start_vals[-1]
+    }
+  }
+  length_start <- length(fields) - 1
+  #if (pf[[2]] == 0) {
+  #  length_start <- length_start - 1
+  #}
+  if (length(start_vals) != length_start) {
+    stop(paste(length(start_vals), "start values were provided when", length_start, "are needed."))
+  }
+  start_vals <- as.list(as.numeric(start_vals))
+  step <- as.numeric(step)
+  # Get the model call
+  the_call <- match.call()
+  # Prepare the data
+  q_string <- paste("SELECT", paste(fields, collapse = ", "), "FROM", df)
+  estDF <- sql(sqlCtx, q_string)
+  registerTempTable(estDF, "estDF")
+  estLP <- dfToLabeledPoints(estDF)
+  SparkR:::callJMethod(estLP, "cache")
+  # Estimate the model
+  the_model <- SparkR:::callJStatic("edu.berkeley.cs.amplab.sparkr.MLlibR",
+                                    "trainLinearRegressionWithSGD",
+                                    estLP,
+                                    iter,
+                                    step,
+                                    batch_frac,
+                                    start_vals,
+                                    reg_param,
+                                    reg_type,
+                                    as.integer(pf[[2]]))
+  obj <- list(Model = the_model, Data = estLP, Fields = fields, call = the_call)
+  class(obj) <- "LinearRegressionModel"
+  obj
+}
+
 # The API for a logistic regression model estimated using the limited memory
 # version of the BFGS optimization algorithm
 logisticRegressionWithLBFGS <- function(formula,
                                         df,
                                         sqlCtx,
                                         iter = 100L,
+                                        start_vals = NULL,
                                         reg_param = 0.0,
+                                        reg_type = "none",
                                         corrections = 10L,
                                         tol = 1e-4) {
   # Input error checking
@@ -88,10 +164,28 @@ logisticRegressionWithLBFGS <- function(formula,
   if (corrections < 1L) {
     stop("The number of corrections must be strictly positive.")
   }
+  if (!(reg_type %in% c("none", "l2"))) {
+    stop("The value of reg_type must be either 'none' or 'l2'.")
+  }
+
   # Parse the formula and prepare the data
   the_call <- match.call()
   pf <- parseFormula(formula)
   fields <- pf[[1]]
+  if (is.null(start_vals)) {
+    start_vals <- rep(0, length(fields))
+    if (pf[[2]] == 0) {
+      start_vals <- start_vals[-1]
+    }
+  }
+  length_start <- length(fields)
+  if (pf[[2]] == 0) {
+    length_start <- length_start - 1
+  }
+  if (length(start_vals) != length_start) {
+    stop(paste(length(start_vals), "start values were provided when", length_start, "are needed."))
+  }
+  start_vals <- as.list(as.numeric(start_vals))
   q_string <- paste("SELECT", paste(fields, collapse = ", "), "FROM", df)
   estDF <- sql(sqlCtx, q_string)
   registerTempTable(estDF, "estDF")
@@ -102,7 +196,9 @@ logisticRegressionWithLBFGS <- function(formula,
                                     "trainLogisticRegressionModelWithLBFGS",
                                     estLP,
                                     iter,
+                                    start_vals,
                                     reg_param,
+                                    reg_type,
                                     use_intercept,
                                     corrections,
                                     tol)
@@ -198,10 +294,10 @@ decisionTree <- function(formula,
 ## Model Evaluation and Summary Functions
 ##
 
-## I'M HERE WITH A DESIGN DELEMA. I WANT THIS OPEN BOTH ESTIMATION AND OTHER DATA
+## I'M HERE WITH A DESIGN DELEMA. I WANT THIS OPEN TO BOTH ESTIMATION AND OTHER DATA
 ## AND WANT IT TO HANDLE MODEL OBJECTS BOTH WITH AND WITHOUT THE ABILITY TO SET
 ## THRESHOLDS. RIGHT NOW I TAKE THE jobj MODEL OBJECT AND THE LABELED POINTS, BUT
-## THESE ARE WRAPPED UP INTO THE REMOVING THE THRESHOLD TO GET PROBABILITIES.
+## THESE ARE WRAPPED UP INTO THE REMOVING OF THE THRESHOLD TO GET PROBABILITIES.
 ## I THINK THE ANSWER IS TO ALLOW NULL FOR THE THRESHOLD VALUE
 # A function to create an RDD of label/score pair tuples
 scoresLabels <- function(model, labeled_points, threshold = 0.5) {
@@ -284,6 +380,22 @@ areaUnderROC <- function(bCMetrics) {
   SparkR:::callJMethod(bCMetrics, "areaUnderROC")
 }
 
+# A summary method for a MLlib linear regression model
+summary.LinearRegressionModel <- function(mod_obj) {
+  # The model call
+  cat("Call:\n")
+  print(mod_obj$call)
+  # The coefficient estimate summary
+  the_estimates <- getCoefs(mod_obj)
+  the_coefficients <- mod_obj$Fields
+  the_coefficients[1] <- "(Intercept)"
+  coef_df <- data.frame(Estimate = format(the_estimates, digits = 3, nsmall = 2))
+  row.names(coef_df) <- the_coefficients
+  cat("\nCoefficients:\n")
+  print(coef_df)
+  # Model Fit statistics: TODO
+}
+
 # A summary method for a MLlib logistic regression model
 summary.LogisticRegressionModel <- function(mod_obj) {
   # The model call
@@ -303,7 +415,7 @@ summary.LogisticRegressionModel <- function(mod_obj) {
   row.names(coef_df) <- the_coefficients
   cat("\nCoefficients:\n")
   print(coef_df)
-  # Model Fit statistics
+  # Model Fit statistics: TODO
   sl1 <- scoresLabels(mod_obj$Model, mod_obj$Data, threshold = 0.0)
   deviances <- binaryClassificationDeviance(sl1)
   mcF <- 1 - (deviances[1]/deviances[2])
@@ -359,6 +471,26 @@ summary.DecisionTreeModel <- function(mod_obj) {
 # The generic idScore method
 idScore <- function(model, ...) {
   UseMethod("idScore", model)
+}
+
+idScore.LinearRegressionModel <- function(model, id, df, sqlCtx) {
+  if (class(id) != "character") {
+    stop("The identifier (id) field needs to be given a single item character vector.")
+  }
+  if (class(df) != "character") {
+    stop("The Spark DataFrame name (df) needs to be a character string.")
+  }
+  fields <- model$Fields[-1]
+  q_string <- paste("SELECT", id, ", ", paste(fields, collapse = ", "), "FROM", df)
+  scoreDF <- sql(sqlCtx, q_string)
+  registerTempTable(scoreDF, "scoreDF")
+  scoreIP <- dfToIdPoints(scoreDF)
+  SparkR:::callJMethod(scoreIP,"cache")
+  scores <- SparkR:::callJStatic("edu.berkeley.cs.amplab.sparkr.MLlibR",
+                                "IdScore",
+                                model$Model,
+                                scoreIP)
+  SparkR:::RDD(scores)
 }
 
 # The idScore method for logistic regression

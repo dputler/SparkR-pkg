@@ -180,6 +180,19 @@ object MLlibR {
       new BinaryClassificationMetrics(sl)
     }
 
+    def getUpdaterFromString(regType: String): Updater = {
+      if (regType == "l2") {
+        new SquaredL2Updater
+      } else if (regType == "l1") {
+        new L1Updater
+      } else if (regType == null || regType == "none") {
+        new SimpleUpdater
+      } else {
+        throw new IllegalArgumentException("Invalid value for 'regType' paramter."
+          + " This value can only be initialized using the string values 'l1', 'l2', or none.")
+      }
+    }
+
   //
   // Model APIs
   //
@@ -188,7 +201,9 @@ object MLlibR {
   def trainLogisticRegressionModelWithLBFGS(
       data: RDD[LabeledPoint],
       numIterations: Int,
+      iWeights: Array[Double],
       regParam: Double,
+      regType: String,
       intercept: Int,
       corrections: Int,
       tolerance: Double): LogisticRegressionModel = {
@@ -197,6 +212,7 @@ object MLlibR {
         } else {
           false
         }
+        val initialWeights = new DenseVector(iWeights)
         val LogRegAlg = new LogisticRegressionWithLBFGS()
         LogRegAlg.setIntercept(newIntrcpt)
         LogRegAlg.optimizer
@@ -204,10 +220,40 @@ object MLlibR {
           .setRegParam(regParam)
           .setNumCorrections(corrections)
           .setConvergenceTol(tolerance)
+        LogRegAlg.optimizer.setUpdater(getUpdaterFromString(regType))
         LogRegAlg.run(data)
       }
 
+  // A method to estimate a linear regression model using SGD optimization
+  def trainLinearRegressionWithSGD(
+        data: RDD[LabeledPoint],
+        numIterations: Int,
+        stepSize: Double,
+        miniBatchFraction: Double,
+        iWeights: Array[Double],
+        regParam: Double,
+        regType: String,
+        intercept: Int): LinearRegressionModel = {
+        val newIntrcpt = if (intercept == 1) {
+          true
+        } else {
+          false
+        }
+        val initialWeights = new DenseVector(iWeights)
+        val linRegAlg = new LinearRegressionWithSGD()
+        linRegAlg.setIntercept(newIntrcpt)
+        linRegAlg.optimizer
+          .setNumIterations(numIterations)
+          .setRegParam(regParam)
+          .setStepSize(stepSize)
+          .setMiniBatchFraction(miniBatchFraction)
+        linRegAlg.optimizer.setUpdater(getUpdaterFromString(regType))
+        linRegAlg.run(data, initialWeights)
+    }
+
+
   // A method to estimate decision tree models
+  // TODO: Properly handle the categorical features
   def trainClassificationTree(
       data: RDD[LabeledPoint],
       numClasses: Int,
@@ -224,51 +270,17 @@ object MLlibR {
         dtModel
   }
 
-  def trainLinearRegressionWithSGD(
-      data: RDD[LabeledPoint],
-      input: RDD[LabeledPoint],
-      numIterations: Int,
-      stepSize: Double,
-      miniBatchFraction: Double,
-      initialWeights: Vector): LinearRegressionModel = {
-        val linRegModel = LinearRegressionWithSGD.train(data,
-                                                     numIterations,
-                                                     stepSize,
-                                                     miniBatchFraction,
-                                                     initialWeights)
-        linRegModel
-  }
-
-  def trainLinearRegressionWithSGD(
-    data: RDD[LabeledPoint],
-    input: RDD[LabeledPoint],
-    numIterations: Int,
-    stepSize: Double,
-    miniBatchFraction: Double): LinearRegressionModel = {
-        val regModel = LinearRegressionWithSGD.train(data,
-                                                     numIterations,
-                                                     stepSize,
-                                                     miniBatchFraction)
-        regModel
-  }
-
-  def trainLinearRegressionWithSGD(
-    data: RDD[LabeledPoint],
-    input: RDD[LabeledPoint],
-    numIterations: Int,
-    stepSize: Double):LinearRegressionModel = {
-        val regModel = LinearRegressionWithSGD.train(data,
-                                                     numIterations,
-                                                     stepSize)
-        regModel
-  }
-
-
     //
     // Prediction method APIs
     //
     def IdScore(modObj: LogisticRegressionModel, vectors: RDD[IdPoint]): RDD[(String, Double)] = {
       modObj.clearThreshold()
+      vectors.map { point =>
+        (point.id, modObj.predict(point.features))
+      }
+    }
+
+    def IdScore(modObj: LinearRegressionModel, vectors: RDD[IdPoint]): RDD[(String, Double)] = {
       vectors.map { point =>
         (point.id, modObj.predict(point.features))
       }
