@@ -178,3 +178,24 @@ export("sparkRSQL.init",
        "sparkRHive.init")
 export("print.structType",
        "print.structField")
+
+# MLlibR
+# Functions
+export("dfToLabeledPoints",
+       "dfToIdPoints",
+       "logisticRegressionWithLBFGS",
+       "decisionTree",
+       "scoresLabels",
+       "misClassRate",
+       "binaryConfusionMatrix",
+       "binaryClassificationDeviance",
+       "BinaryClassificationMetrics",
+       "areaUnderROC",
+       "getScores")
+# S3 generics
+export("idScore")
+# S3 methods
+export("summary.LogisticRegressionModel",
+       "summary.DecisionTreeModel",
+       "idScore.LogisticRegressionModel",
+       "idScore.DecisionTreeModel")
