@@ -175,23 +175,23 @@ object MLlibR {
       Array[Double](tdev, tndev)
     }
 
-    // A method to enable the creation of a BinaryClassificationMetrics object
-    def BCMetrics(sl: RDD[(Double, Double)]): BinaryClassificationMetrics = {
-      new BinaryClassificationMetrics(sl)
-    }
+  // A method to enable the creation of a BinaryClassificationMetrics object
+  def BCMetrics(sl: RDD[(Double, Double)]): BinaryClassificationMetrics = {
+    new BinaryClassificationMetrics(sl)
+  }
 
-    def getUpdaterFromString(regType: String): Updater = {
-      if (regType == "l2") {
-        new SquaredL2Updater
-      } else if (regType == "l1") {
-        new L1Updater
-      } else if (regType == null || regType == "none") {
-        new SimpleUpdater
-      } else {
-        throw new IllegalArgumentException("Invalid value for 'regType' paramter."
-          + " This value can only be initialized using the string values 'l1', 'l2', or none.")
-      }
+  def getUpdaterFromString(regType: String): Updater = {
+    if (regType == "l2") {
+      new SquaredL2Updater
+    } else if (regType == "l1") {
+      new L1Updater
+    } else if (regType == null || regType == "none") {
+      new SimpleUpdater
+    } else {
+      throw new IllegalArgumentException("Invalid value for 'regType' paramter."
+        + " This value can only be initialized using the string values 'l1', 'l2', or none.")
     }
+  }
 
   //
   // Model APIs
@@ -270,9 +270,9 @@ object MLlibR {
         dtModel
   }
 
-    //
-    // Prediction method APIs
-    //
+  //
+  // Prediction method APIs
+  //
 
   // Create scores case class for use with createDataFrame
   case class scores(id : String, score: Double)
