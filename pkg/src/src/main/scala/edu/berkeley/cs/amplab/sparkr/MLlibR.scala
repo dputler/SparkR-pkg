@@ -273,24 +273,19 @@ object MLlibR {
     //
     // Prediction method APIs
     //
-    def IdScore(modObj: LogisticRegressionModel, vectors: RDD[IdPoint]): RDD[(String, Double)] = {
-      modObj.clearThreshold()
-      vectors.map { point =>
-        (point.id, modObj.predict(point.features))
-      }
-    }
 
-    def IdScore(modObj: LinearRegressionModel, vectors: RDD[IdPoint]): RDD[(String, Double)] = {
-      vectors.map { point =>
-        (point.id, modObj.predict(point.features))
-      }
-    }
+  // Create scores case class for use with createDataFrame
+  case class scores(id : String, score: Double)
 
-    def IdScore(modObj: DecisionTreeModel, vectors: RDD[IdPoint]): RDD[(String, Double)] = {
+  def IdScore(modObj: LogisticRegressionModel,
+              vectors: RDD[IdPoint],
+              sqlCtx: SQLContext): DataFrame = {
+    modObj.clearThreshold()
+    sqlCtx.createDataFrame(
       vectors.map { point =>
-        (point.id, modObj.predict(point.features))
-      }
-    }
+        scores(point.id, modObj.predict(point.features))
+    })
+  }
 
     // A less than ideal way of getting things into R since we can't create a
     // DataFrame in Spark from the R side nicely at the moment.
@@ -320,5 +315,21 @@ object MLlibR {
         reducIds
       }
     }
+  def IdScore(modObj: LinearRegressionModel,
+              vectors: RDD[IdPoint],
+              sqlCtx: SQLContext): DataFrame = {
+    sqlCtx.createDataFrame(
+      vectors.map { point =>
+        scores(point.id, modObj.predict(point.features))
+    })
+  }
 
+  def IdScore(modObj: DecisionTreeModel,
+              vectors: RDD[IdPoint],
+              sqlCtx: SQLContext): DataFrame = {
+    sqlCtx.createDataFrame(
+      vectors.map { point =>
+        scores(point.id, modObj.predict(point.features))
+    })
+  }
 }

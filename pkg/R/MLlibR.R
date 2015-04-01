@@ -481,8 +481,9 @@ idScore.LinearRegressionModel <- function(model, id, df, sqlCtx) {
   scores <- SparkR:::callJStatic("edu.berkeley.cs.amplab.sparkr.MLlibR",
                                 "IdScore",
                                 model$Model,
-                                scoreIP)
-  SparkR:::RDD(scores)
+                                scoreIP,
+                                sqlCtx)
+  dataFrame(scores)
 }
 
 # The idScore method for logistic regression
@@ -501,8 +502,9 @@ idScore.LogisticRegressionModel <- function(model, id, df, sqlCtx) {
   scores <- SparkR:::callJStatic("edu.berkeley.cs.amplab.sparkr.MLlibR",
                                 "IdScore",
                                 model$Model,
-                                scoreIP)
-  SparkR:::RDD(scores)
+                                scoreIP,
+                                sqlCtx)
+  dataFrame(scores)
 }
 
 # The idScore method for decision trees
@@ -520,9 +522,6 @@ idScore.DecisionTreeModel <- function(model, id, df, sqlCtx) {
   scores <- SparkR:::callJStatic("edu.berkeley.cs.amplab.sparkr.MLlibR",
                                 "IdScore",
                                 model$Model,
-                                scoreIP)
-  SparkR:::RDD(scores)
-}
 
 # Get all or a subset of the scored data into an R data frame. Needed until
 # there is a more general way to create Spark DataFrames from R calls.
@@ -538,4 +537,7 @@ getScores <- function(id_scores, number = -1L) {
                                     as.integer(number))
 
   data.frame(ID = unlist(the_ids), Score = unlist(the_scores))
+                                scoreIP,
+                                sqlCtx)
+  dataFrame(scores)
 }
