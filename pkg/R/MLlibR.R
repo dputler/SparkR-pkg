@@ -522,21 +522,6 @@ idScore.DecisionTreeModel <- function(model, id, df, sqlCtx) {
   scores <- SparkR:::callJStatic("edu.berkeley.cs.amplab.sparkr.MLlibR",
                                 "IdScore",
                                 model$Model,
-
-# Get all or a subset of the scored data into an R data frame. Needed until
-# there is a more general way to create Spark DataFrames from R calls.
-getScores <- function(id_scores, number = -1L) {
-  the_ids <- SparkR:::callJStatic("edu.berkeley.cs.amplab.sparkr.MLlibR",
-                                  "getIDs",
-                                  id_scores@jrdd,
-                                  as.integer(number))
-
-  the_scores <- SparkR:::callJStatic("edu.berkeley.cs.amplab.sparkr.MLlibR",
-                                    "getScores",
-                                    id_scores@jrdd,
-                                    as.integer(number))
-
-  data.frame(ID = unlist(the_ids), Score = unlist(the_scores))
                                 scoreIP,
                                 sqlCtx)
   dataFrame(scores)

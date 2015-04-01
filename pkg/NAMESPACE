@@ -190,8 +190,7 @@ export("dfToLabeledPoints",
        "binaryConfusionMatrix",
        "binaryClassificationDeviance",
        "BinaryClassificationMetrics",
-       "areaUnderROC",
-       "getScores")
+       "areaUnderROC")
 # S3 generics
 export("idScore")
 # S3 methods
