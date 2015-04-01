@@ -16,7 +16,6 @@ Description: R frontend for Spark
 License: Apache License (== 2.0)
 Collate:
     'generics.R'
-    'MLlibR.R'
     'jobj.R'
     'SQLTypes.R'
     'RDD.R'
@@ -24,6 +23,7 @@ Collate:
     'column.R'
     'group.R'
     'DataFrame.R'
+    'MLlibR.R'
     'SQLContext.R'
     'broadcast.R'
     'context.R'
