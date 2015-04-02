@@ -18,7 +18,7 @@ parseFormula <- function(formula) {
   }
   preds <- preds[!(preds %in% c("1", "-1"))]
   vars <- c(formula.parts[2], preds)
-  list(vars, intercept)
+  list(as.list(vars), intercept)
 }
 
 # Turn a Spark DataFrame into an object that is RDD[LabeledPoint], which is
@@ -70,8 +70,8 @@ linearRegressionWithSGD <- function(formula,
   if (class(formula) != "formula") {
     stop("The provided formula is not a formula object.")
   }
-  if (class(df) != "character") {
-    stop("The Spark DataFrame name (df) needs to be a character string.")
+  if (class(df) != "DataFrame") {
+    stop("The data (df) must be a Spark DataFrame.")
   }
   if (is.null(batch_frac)) {
     batch_frac <- 1
@@ -109,9 +109,7 @@ linearRegressionWithSGD <- function(formula,
   # Get the model call
   the_call <- match.call()
   # Prepare the data
-  q_string <- paste("SELECT", paste(fields, collapse = ", "), "FROM", df)
-  estDF <- sql(sqlCtx, q_string)
-  registerTempTable(estDF, "estDF")
+  estDF <- select(df, fields)
   estLP <- dfToLabeledPoints(estDF)
   SparkR:::callJMethod(estLP, "cache")
   # Estimate the model
@@ -145,8 +143,8 @@ logisticRegressionWithLBFGS <- function(formula,
   if (class(formula) != "formula") {
     stop("The provided formula is not a formula object.")
   }
-  if (class(df) != "character") {
-    stop("The Spark DataFrame name (df) needs to be a character string.")
+  if (class(df) != "DataFrame") {
+    stop("The data (df) must be a Spark DataFrame.")
   }
   if (length(iter) != 1) {
     stop("The value of iter (the number of iterations) should be a single integer")
@@ -186,9 +184,7 @@ logisticRegressionWithLBFGS <- function(formula,
     stop(paste(length(start_vals), "start values were provided when", length_start, "are needed."))
   }
   start_vals <- as.list(as.numeric(start_vals))
-  q_string <- paste("SELECT", paste(fields, collapse = ", "), "FROM", df)
-  estDF <- sql(sqlCtx, q_string)
-  registerTempTable(estDF, "estDF")
+  estDF <- select(df, fields)
   estLP <- dfToLabeledPoints(estDF)
   SparkR:::callJMethod(estLP, "cache")
   use_intercept <- pf[[2]]
@@ -220,8 +216,8 @@ decisionTree <- function(formula,
   if (class(formula) != "formula") {
     stop("The provided formula is not a formula object.")
   }
-  if (class(df) != "character") {
-    stop("The Spark DataFrame name (df) needs to be a character string.")
+  if (class(df) != "DataFrame") {
+    stop("The data (df) must be a Spark DataFrame.")
   }
   modType = match.arg(modType)
   if (!is.null(impurity)) {
@@ -259,9 +255,7 @@ decisionTree <- function(formula,
   the_call <- match.call()
   pf <- SparkR:::parseFormula(formula)
   fields <- pf[[1]]
-  q_string <- paste("SELECT", paste(fields, collapse = ", "), "FROM", df)
-  estDF <- sql(sqlCtx, q_string)
-  registerTempTable(estDF, "estDF")
+  estDF <- select(df, fields)
   estLP <- dfToLabeledPoints(estDF)
   SparkR:::callJMethod(estLP, "cache")
   if (modType == "classification") {
@@ -477,20 +471,19 @@ idScore.LinearRegressionModel <- function(model, id, df, sqlCtx) {
   if (class(id) != "character") {
     stop("The identifier (id) field needs to be given a single item character vector.")
   }
-  if (class(df) != "character") {
-    stop("The Spark DataFrame name (df) needs to be a character string.")
+  if (class(df) != "DataFrame") {
+    stop("The data (df) must be a Spark DataFrame.")
   }
-  fields <- model$Fields[-1]
-  q_string <- paste("SELECT", id, ", ", paste(fields, collapse = ", "), "FROM", df)
-  scoreDF <- sql(sqlCtx, q_string)
-  registerTempTable(scoreDF, "scoreDF")
+  fields <- as.list(c(id, model$Fields[-1]))
+  scoreDF <- select(df, fields)
   scoreIP <- dfToIdPoints(scoreDF)
   SparkR:::callJMethod(scoreIP,"cache")
   scores <- SparkR:::callJStatic("edu.berkeley.cs.amplab.sparkr.MLlibR",
                                 "IdScore",
                                 model$Model,
-                                scoreIP)
-  SparkR:::RDD(scores)
+                                scoreIP,
+                                sqlCtx)
+  dataFrame(scores)
 }
 
 # The idScore method for logistic regression
@@ -498,20 +491,20 @@ idScore.LogisticRegressionModel <- function(model, id, df, sqlCtx) {
   if (class(id) != "character") {
     stop("The identifier (id) field needs to be given a single item character vector.")
   }
-  if (class(df) != "character") {
-    stop("The Spark DataFrame name (df) needs to be a character string.")
+  if (class(df) != "DataFrame") {
+    stop("The data (df) must be a Spark DataFrame.")
   }
-  fields <- model$Fields[-1]
-  q_string <- paste("SELECT", id, ", ", paste(fields, collapse = ", "), "FROM", df)
-  scoreDF <- sql(sqlCtx, q_string)
-  registerTempTable(scoreDF, "scoreDF")
+  # Create field order, making sure to place ID field first
+  fields <- as.list(c(id, model$Fields[-1]))
+  scoreDF <- select(df, fields)
   scoreIP <- dfToIdPoints(scoreDF)
   SparkR:::callJMethod(scoreIP, "cache")
   scores <- SparkR:::callJStatic("edu.berkeley.cs.amplab.sparkr.MLlibR",
                                 "IdScore",
                                 model$Model,
-                                scoreIP)
-  SparkR:::RDD(scores)
+                                scoreIP,
+                                sqlCtx)
+  dataFrame(scores)
 }
 
 # The idScore method for decision trees
@@ -519,34 +512,17 @@ idScore.DecisionTreeModel <- function(model, id, df, sqlCtx) {
   if (class(id) != "character") {
     stop("The identifier (id) field needs to be given a single item character vector.")
   }
-  if (class(df) != "character") {
-    stop("The Spark DataFrame name (df) needs to be a character string.")
+  if (class(df) != "DataFrame") {
+    stop("The data (df) must be a Spark DataFrame.")
   }
-  fields <- model$Fields[-1]
-  q_string <- paste("SELECT", id, ", ", paste(fields, collapse = ", "), "FROM", df)
-  scoreDF <- sql(sqlCtx, q_string)
-  registerTempTable(scoreDF, "scoreDF")
+  fields <- as.list(c(id, model$Fields[-1]))
+  scoreDF <- select(df, fields)
   scoreIP <- dfToIdPoints(scoreDF)
   SparkR:::callJMethod(scoreIP,"cache")
   scores <- SparkR:::callJStatic("edu.berkeley.cs.amplab.sparkr.MLlibR",
                                 "IdScore",
                                 model$Model,
-                                scoreIP)
-  SparkR:::RDD(scores)
-}
-
-# Get all or a subset of the scored data into an R data frame. Needed until
-# there is a more general way to create Spark DataFrames from R calls.
-getScores <- function(id_scores, number = -1L) {
-  the_ids <- SparkR:::callJStatic("edu.berkeley.cs.amplab.sparkr.MLlibR",
-                                  "getIDs",
-                                  id_scores@jrdd,
-                                  as.integer(number))
-
-  the_scores <- SparkR:::callJStatic("edu.berkeley.cs.amplab.sparkr.MLlibR",
-                                    "getScores",
-                                    id_scores@jrdd,
-                                    as.integer(number))
-
-  data.frame(ID = unlist(the_ids), Score = unlist(the_scores))
+                                scoreIP,
+                                sqlCtx)
+  dataFrame(scores)
 }

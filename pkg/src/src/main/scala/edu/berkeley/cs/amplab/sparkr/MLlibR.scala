@@ -175,23 +175,23 @@ object MLlibR {
       Array[Double](tdev, tndev)
     }
 
-    // A method to enable the creation of a BinaryClassificationMetrics object
-    def BCMetrics(sl: RDD[(Double, Double)]): BinaryClassificationMetrics = {
-      new BinaryClassificationMetrics(sl)
-    }
+  // A method to enable the creation of a BinaryClassificationMetrics object
+  def BCMetrics(sl: RDD[(Double, Double)]): BinaryClassificationMetrics = {
+    new BinaryClassificationMetrics(sl)
+  }
 
-    def getUpdaterFromString(regType: String): Updater = {
-      if (regType == "l2") {
-        new SquaredL2Updater
-      } else if (regType == "l1") {
-        new L1Updater
-      } else if (regType == null || regType == "none") {
-        new SimpleUpdater
-      } else {
-        throw new IllegalArgumentException("Invalid value for 'regType' paramter."
-          + " This value can only be initialized using the string values 'l1', 'l2', or none.")
-      }
+  def getUpdaterFromString(regType: String): Updater = {
+    if (regType == "l2") {
+      new SquaredL2Updater
+    } else if (regType == "l1") {
+      new L1Updater
+    } else if (regType == null || regType == "none") {
+      new SimpleUpdater
+    } else {
+      throw new IllegalArgumentException("Invalid value for 'regType' paramter."
+        + " This value can only be initialized using the string values 'l1', 'l2', or none.")
     }
+  }
 
   //
   // Model APIs
@@ -270,55 +270,38 @@ object MLlibR {
         dtModel
   }
 
-    //
-    // Prediction method APIs
-    //
-    def IdScore(modObj: LogisticRegressionModel, vectors: RDD[IdPoint]): RDD[(String, Double)] = {
-      modObj.clearThreshold()
+  //
+  // Prediction method APIs
+  //
+
+  // Create scores case class for use with createDataFrame
+  case class scores(id : String, score: Double)
+
+  def IdScore(modObj: LogisticRegressionModel,
+              vectors: RDD[IdPoint],
+              sqlCtx: SQLContext): DataFrame = {
+    modObj.clearThreshold()
+    sqlCtx.createDataFrame(
       vectors.map { point =>
-        (point.id, modObj.predict(point.features))
-      }
-    }
+        scores(point.id, modObj.predict(point.features))
+    })
+  }
 
-    def IdScore(modObj: LinearRegressionModel, vectors: RDD[IdPoint]): RDD[(String, Double)] = {
+  def IdScore(modObj: LinearRegressionModel,
+              vectors: RDD[IdPoint],
+              sqlCtx: SQLContext): DataFrame = {
+    sqlCtx.createDataFrame(
       vectors.map { point =>
-        (point.id, modObj.predict(point.features))
-      }
-    }
+        scores(point.id, modObj.predict(point.features))
+    })
+  }
 
-    def IdScore(modObj: DecisionTreeModel, vectors: RDD[IdPoint]): RDD[(String, Double)] = {
+  def IdScore(modObj: DecisionTreeModel,
+              vectors: RDD[IdPoint],
+              sqlCtx: SQLContext): DataFrame = {
+    sqlCtx.createDataFrame(
       vectors.map { point =>
-        (point.id, modObj.predict(point.features))
-      }
-    }
-
-    // A less than ideal way of getting things into R since we can't create a
-    // DataFrame in Spark from the R side nicely at the moment.
-    def getScores(idScr: RDD[(String, Double)], num: Int): Array[Double] = {
-      val scoresRDD = idScr.map {tuple => tuple._2}
-      val scores = scoresRDD.collect
-      if (num <= 0L) {
-        scores
-      } else {
-        var reducScores = Array[Double](scores(0))
-        for (ind <- 1 until num) {
-          reducScores :+= scores(ind)
-        }
-        reducScores
-      }
-    }
-    def getIDs(idScr: RDD[(String, Double)], num: Int): Array[String] = {
-      val idRDD = idScr.map { tuple => tuple._1}
-      val ids = idRDD.collect
-      if (num <= 0L) {
-        ids
-      } else {
-        var reducIds = Array[String](ids(0))
-        for (ind <- 1 until num) {
-          reducIds :+= ids(ind)
-        }
-        reducIds
-      }
-    }
-
+        scores(point.id, modObj.predict(point.features))
+    })
+  }
 }
