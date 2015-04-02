@@ -6,6 +6,7 @@ exportMethods(
               "aggregateRDD",
               "cache",
               "checkpoint",
+              "coalesce",
               "cogroup",
               "collect",
               "collectAsMap",
@@ -25,6 +26,7 @@ exportMethods(
               "foreach",
               "foreachPartition",
               "fullOuterJoin",
+              "glom",
               "groupByKey",
               "join",
               "keyBy",
@@ -48,6 +50,7 @@ exportMethods(
               "reduce",
               "reduceByKey",
               "reduceByKeyLocally",
+              "repartition",
               "rightOuterJoin",
               "sampleRDD",
               "saveAsTextFile",
@@ -61,7 +64,10 @@ exportMethods(
               "unionRDD",
               "unpersist",
               "value",
-              "values"
+              "values",
+              "zipRDD",
+              "zipWithIndex",
+              "zipWithUniqueId"
              )
 
 # S3 methods exported
@@ -108,6 +114,7 @@ exportMethods("columns",
               "schema",
               "select",
               "selectExpr",
+              "show",
               "showDF",
               "sortDF",
               "subtract",
@@ -122,10 +129,17 @@ exportClasses("Column")
 
 exportMethods("asc",
               "desc",
-              "first",
               "last",
               "lower",
               "upper",
+              "like",
+              "rlike",
+              "startsWith",
+              "endsWith",
+              "substr",
+              "contains",
+              "getField",
+              "getItem",
               "abs",
               "sqrt",
               "min",
@@ -146,6 +160,7 @@ exportMethods("agg")
 
 export("cacheTable",
        "clearCache",
+       "createDataFrame",
        "createExternalTable",
        "dropTempTable",
        "jsonFile",
@@ -156,6 +171,7 @@ export("cacheTable",
        "table",
        "tableNames",
        "tables",
+       "toDF",
        "uncacheTable")
 
 export("sparkRSQL.init",

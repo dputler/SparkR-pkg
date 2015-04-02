@@ -23,20 +23,6 @@ connExists <- function(env) {
 # Stop the Spark context.
 # Also terminates the backend this R session is connected to
 sparkR.stop <- function(env = .sparkREnv) {
-
-  if (!connExists(env)) {
-    # When the workspace is saved in R, the connections are closed
-    # *before* the finalizer is run. In these cases, we reconnect
-    # to the backend, so we can shut it down.
-    tryCatch({
-      connectBackend("localhost", .sparkREnv$sparkRBackendPort)
-    }, error = function(err) {
-      cat("Error in Connection: Use sparkR.init() to restart SparkR\n")
-    }, warning = function(war) {
-      cat("No Connection Found: Use sparkR.init() to restart SparkR\n")
-    })
-  } 
-
   if (exists(".sparkRCon", envir = env)) {
     cat("Stopping SparkR\n")
     if (exists(".sparkRjsc", envir = env)) {
@@ -47,14 +33,25 @@ sparkR.stop <- function(env = .sparkREnv) {
   
     callJStatic("SparkRHandler", "stopBackend")
     # Also close the connection and remove it from our env
-    conn <- get(".sparkRCon", env)
+    conn <- get(".sparkRCon", envir = env)
     close(conn)
+
     rm(".sparkRCon", envir = env)
-    # Finally, sleep for 1 sec to let backend finish exiting.
-    # Without this we get port conflicts in RStudio when we try to 'Restart R'.
-    Sys.sleep(1)
+    rm(".scStartTime", envir = env)
   }
-  
+
+  if (exists(".monitorConn", envir = env)) {
+    conn <- get(".monitorConn", envir = env)
+    close(conn)
+    rm(".monitorConn", envir = env)
+  }
+
+  # Clear all broadcast variables we have
+  # as the jobj will not be valid if we restart the JVM
+  clearBroadcastVariables()
+
+  # Clear jobj maps
+  clearJobjs()
 }
 
 #' Initialize a new Spark Context.
@@ -88,9 +85,7 @@ sparkR.init <- function(
   sparkEnvir = list(),
   sparkExecutorEnv = list(),
   sparkJars = "",
-  sparkRLibDir = "",
-  sparkRBackendPort = as.integer(Sys.getenv("SPARKR_BACKEND_PORT", "12345")),
-  sparkRRetryCount = 6) {
+  sparkRLibDir = "") {
 
   if (exists(".sparkRjsc", envir = .sparkREnv)) {
     cat("Re-using existing Spark Context. Please stop SparkR with sparkR.stop() or restart R to create a new Spark Context\n")
@@ -121,45 +116,52 @@ sparkR.init <- function(
   if (sparkRExistingPort != "") {
     sparkRBackendPort <- sparkRExistingPort
   } else {
+    path <- tempfile(pattern = "backend_port")
     if (Sys.getenv("SPARKR_USE_SPARK_SUBMIT", "") == "") {
       launchBackend(classPath = cp,
                     mainClass = "edu.berkeley.cs.amplab.sparkr.SparkRBackend",
-                    args = as.character(sparkRBackendPort),
+                    args = path,
                     javaOpts = paste("-Xmx", sparkMem, sep = ""))
     } else {
       # TODO: We should deprecate sparkJars and ask users to add it to the
       # command line (using --jars) which is picked up by SparkSubmit
       launchBackendSparkSubmit(
           mainClass = "edu.berkeley.cs.amplab.sparkr.SparkRBackend",
-          args = as.character(sparkRBackendPort),
+          args = path,
           appJar = .sparkREnv$assemblyJarPath,
           sparkHome = sparkHome,
           sparkSubmitOpts = Sys.getenv("SPARKR_SUBMIT_ARGS", ""))
     }
+    # wait atmost 100 seconds for JVM to launch 
+    wait <- 0.1
+    for (i in 1:25) {
+      Sys.sleep(wait)
+      if (file.exists(path)) {
+        break
+      }
+      wait <- wait * 1.25
+    }
+    if (!file.exists(path)) {
+      stop("JVM is not ready after 10 seconds")
+    }
+    f <- file(path, open='rb')
+    sparkRBackendPort <- readInt(f)
+    monitorPort <- readInt(f)
+    close(f)
+    file.remove(path)
+    if (length(sparkRBackendPort) == 0 || sparkRBackendPort == 0 ||
+        length(monitorPort) == 0 || monitorPort == 0) {
+      stop("JVM failed to launch")
+    }
+    assign(".monitorConn", socketConnection(port = monitorPort), envir = .sparkREnv)
   }
 
   .sparkREnv$sparkRBackendPort <- sparkRBackendPort
-  cat("Waiting for JVM to come up...\n")
-  tries <- 0
-  while (tries < sparkRRetryCount) {
-    if (!connExists(.sparkREnv)) {
-      Sys.sleep(2 ^ tries)
-      tryCatch({
-        connectBackend("localhost", .sparkREnv$sparkRBackendPort)
-      }, error = function(err) {
-        cat("Error in Connection, retrying...\n")
-      }, warning = function(war) {
-        cat("No Connection Found, retrying...\n")
-      })
-      tries <- tries + 1
-    } else {
-      cat("Connection ok.\n")
-      break
-    }
-  }
-  if (tries == sparkRRetryCount) {
-    stop(sprintf("Failed to connect JVM after %d tries.\n", sparkRRetryCount))
-  }
+  tryCatch({
+    connectBackend("localhost", sparkRBackendPort)
+  }, error = function(err) {
+    stop("Failed to connect JVM\n")
+  })
 
   if (nchar(sparkHome) != 0) {
     sparkHome <- normalizePath(sparkHome)
@@ -185,6 +187,10 @@ sparkR.init <- function(
   nonEmptyJars <- Filter(function(x) { x != "" }, jars)
   localJarPaths <- sapply(nonEmptyJars, function(j) { utils::URLencode(paste("file:", uriSep, j, sep = "")) })
 
+  # Set the start time to identify jobjs
+  # Seconds resolution is good enough for this purpose, so use ints
+  assign(".scStartTime", as.integer(Sys.time()), envir = .sparkREnv)
+
   assign(
     ".sparkRjsc",
     callJStatic(
@@ -201,8 +207,8 @@ sparkR.init <- function(
 
   sc <- get(".sparkRjsc", envir = .sparkREnv)
 
-  # Register a finalizer to stop backend on R exit
-  reg.finalizer(.sparkREnv, sparkR.stop, onexit = TRUE)
+  # Register a finalizer to sleep 1 seconds on R exit to make RStudio happy
+  reg.finalizer(.sparkREnv, function(x) { Sys.sleep(1) }, onexit = TRUE)
 
   sc
 }
@@ -222,7 +228,6 @@ sparkR.init <- function(
 
 sparkRSQL.init <- function(jsc) {
   if (exists(".sparkRSQLsc", envir = .sparkREnv)) {
-    cat("Re-using existing SparkSQL Context. Please restart R to create a new SparkSQL Context\n")
     return(get(".sparkRSQLsc", envir = .sparkREnv))
   }
 
@@ -247,7 +252,6 @@ sparkRSQL.init <- function(jsc) {
 
 sparkRHive.init <- function(jsc) {
   if (exists(".sparkRHivesc", envir = .sparkREnv)) {
-    cat("Re-using existing HiveContext. Please restart R to create a new HiveContext\n")
     return(get(".sparkRHivesc", envir = .sparkREnv))
   }
 
